@@ -1,40 +1,27 @@
-terraform {
-    required_providers {
-      azurerm = {
-        source = "hashicorp/azurerm"
-      }
-      azapi = {
-        source = "Azure/azapi"
-      }
-    }
-}
-
-provider "azurerm" {
-  features {}
-}
-
 resource "azurerm_resource_group" "rg" {
   location = var.location
   name     = var.resourceGroupName
 }
 
 resource "azapi_resource" "serverFarm" {
-  type = "Microsoft.Web/serverfarms@2023-12-01"
+  type                      = "Microsoft.Web/serverfarms@2023-12-01"
   schema_validation_enabled = false
-  location = var.location
-  name = var.functionPlanName
-  parent_id = azurerm_resource_group.rg.id
-  body = jsonencode({
-      kind = "functionapp",
-      sku = {
-        tier = "FlexConsumption",
-        name = "FC1"
-      },
-      properties = {
-        reserved = true
-      }
-  })
+  location                  = var.location
+  name                      = var.functionPlanName
+  parent_id                 = azurerm_resource_group.rg.id
+
+  body = {
+    kind = "functionapp"
+    sku = {
+      tier = "FlexConsumption"
+      name = "FC1"
+    }
+    properties = {
+      reserved = true
+    }
+  }
 }
+
 
 resource "azurerm_storage_account" "storageAccount" {
   name                     = var.storageAccountName
@@ -46,7 +33,7 @@ resource "azurerm_storage_account" "storageAccount" {
 
 resource "azurerm_storage_container" "storageContainer" {
   name                  = "deploymentpackage"
-  storage_account_name  = azurerm_storage_account.storageAccount.name
+  storage_account_id    = azurerm_storage_account.storageAccount.id
   container_access_type = "private"
 }
 
@@ -71,52 +58,62 @@ locals {
 }
 
 resource "azapi_resource" "functionApps" {
-  type = "Microsoft.Web/sites@2023-12-01"
+  type                      = "Microsoft.Web/sites@2023-12-01"
   schema_validation_enabled = false
-  location = var.location
-  name = var.functionAppName
-  parent_id = azurerm_resource_group.rg.id
-  body = jsonencode({
-    kind = "functionapp,linux",
+  location                  = var.location
+  name                      = var.functionAppName
+  parent_id                 = azurerm_resource_group.rg.id
+
+  body = {
+    kind = "functionapp,linux"
+
     identity = {
-      type: "SystemAssigned"
+      type = "SystemAssigned"
     }
+
     properties = {
-      serverFarmId = azapi_resource.serverFarm.id,
-        functionAppConfig = {
-          deployment = {
-            storage = {
-              type = "blobContainer",
-              value = local.blobStorageAndContainer,
-              authentication = {
-                type = "SystemAssignedIdentity"
-              }
+      serverFarmId = azapi_resource.serverFarm.id
+
+      functionAppConfig = {
+        deployment = {
+          storage = {
+            type  = "blobContainer"
+            value = local.blobStorageAndContainer
+            authentication = {
+              type = "SystemAssignedIdentity"
             }
-          },
-          scaleAndConcurrency = {
-            maximumInstanceCount = var.maximumInstanceCount,
-            instanceMemoryMB = var.instanceMemoryMB
-          },
-          runtime = { 
-            name = var.functionAppRuntime, 
-            version = var.functionAppRuntimeVersion
           }
-        },
-        siteConfig = {
-          appSettings = [
-            {
-              name = "AzureWebJobsStorage__accountName",
-              value = azurerm_storage_account.storageAccount.name
-            },
-            {
-              name = "APPLICATIONINSIGHTS_CONNECTION_STRING",
-              value = azurerm_application_insights.appInsights.connection_string
-            }
-          ]
+        }
+        scaleAndConcurrency = {
+          maximumInstanceCount = var.maximumInstanceCount
+          instanceMemoryMB     = var.instanceMemoryMB
+        }
+        runtime = {
+          name    = var.functionAppRuntime
+          version = var.functionAppRuntimeVersion
         }
       }
-  })
-  depends_on = [ azapi_resource.serverFarm, azurerm_application_insights.appInsights, azurerm_storage_account.storageAccount ]
+
+      siteConfig = {
+        appSettings = [
+          {
+            name  = "AzureWebJobsStorage__accountName"
+            value = azurerm_storage_account.storageAccount.name
+          },
+          {
+            name  = "APPLICATIONINSIGHTS_CONNECTION_STRING"
+            value = azurerm_application_insights.appInsights.connection_string
+          }
+        ]
+      }
+    }
+  }
+
+  depends_on = [
+    azapi_resource.serverFarm,
+    azurerm_application_insights.appInsights,
+    azurerm_storage_account.storageAccount
+  ]
 }
 
 data "azurerm_linux_function_app" "fn_wrapper" {
